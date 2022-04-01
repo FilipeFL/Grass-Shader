@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "com.consulo.ide": "https://github.com/consulo/UnityEditorConsuloPlugin.git#2.6.0",
     "com.unity.package-manager-ui": "2.0.3",
     "com.unity.modules.ai": "1.0.0",
     "com.unity.modules.animation": "1.0.0",
@@ -31,5 +32,11 @@
     "com.unity.modules.vr": "1.0.0",
     "com.unity.modules.wind": "1.0.0",
     "com.unity.modules.xr": "1.0.0"
+  },
+  "lock": {
+    "com.consulo.ide": {
+      "hash": "b25393f154e74a09bc78068fb0a7636976f37a49",
+      "revision": "2.6.0"
+    }
   }
 }

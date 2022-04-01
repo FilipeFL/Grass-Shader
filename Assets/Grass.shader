@@ -11,31 +11,38 @@ Shader "Roystan/Grass"
 		_BladeWidthRandom("Blade Width Random", Float) = 0.02
 		_BladeHeight("Blade Height", Float) = 0.5
 		_BladeHeightRandom("Blade Height Random", Float) = 0.3
+		_TessellationUniform("Tessellation Uniform", Range(1, 64)) = 1
+		_WindDistortionMap("Wind Distortion Map", 2D) = "white" {}
+        _WindFrequency("Wind Frequency", Vector) = (0.05, 0.05, 0, 0)
+        _WindStrength("Wind Strength", Float) = 1
+        _BladeForward("Blade Forward Amount", Float) = 0.38
+        _BladeCurve("Blade Curvature Amount", Range(1, 4)) = 2
+
     }
 
 	CGINCLUDE
 	#include "UnityCG.cginc"
 	#include "Autolight.cginc"
+	#include "Shaders/CustomTessellation.cginc"
+
+	#define BLADE_SEGMENTS 3
 
 	float _BendRotationRandom;
 	float _BladeHeight;
-	float _BladeHeightRandom;	
+	float _BladeHeightRandom;
 	float _BladeWidth;
 	float _BladeWidthRandom;
 
-	struct vertexInput
-	{
-		float4 vertex : POSITION;
-		float3 normal : NORMAL;
-		float4 tangent : TANGENT;
-	};
+	sampler2D _WindDistortionMap;
+    float4 _WindDistortionMap_ST;
 
-	struct vertexOutput
-	{
-		float4 vertex : SV_POSITION;
-		float3 normal : NORMAL;
-		float4 tangent : TANGENT;
-	};
+    float2 _WindFrequency;
+
+    float _WindStrength;
+
+    float _BladeForward;
+    float _BladeCurve;
+
 	
 	struct geometryOutput
 	{
@@ -52,16 +59,13 @@ Shader "Roystan/Grass"
 		return o;
 	}
 
+	geometryOutput GenerateGrassVertex(float3 vertexPosition, float width, float height, float forward,float2 uv, float3x3 transformMatrix)
+    {
+        float3 tangentPoint = float3(width, forward, height);
 
-	// Modify the vertex shader.
-	vertexOutput vert(vertexInput v)
-	{
-		vertexOutput o;
-		o.vertex = v.vertex;
-		o.normal = v.normal;
-		o.tangent = v.tangent;
-		return o;
-	}
+        float3 localPosition = vertexPosition + mul(transformMatrix, tangentPoint);
+        return VertexOutput(localPosition, uv);
+    }
 
 	// Simple noise function, sourced from http://answers.unity.com/answers/624136/view.html
 	// Extended discussion on this function can be found at the following link:
@@ -97,7 +101,7 @@ Shader "Roystan/Grass"
 	}
 
 	//Geometry shader
-	[maxvertexcount(3)]
+	[maxvertexcount(BLADE_SEGMENTS * 2 + 1)]
 	void geo(triangle vertexOutput IN[3], inout TriangleStream<geometryOutput> triStream)
 	{
 		float3 pos = IN[0].vertex;
@@ -112,14 +116,39 @@ Shader "Roystan/Grass"
 
 		float3x3 bendRotationMatrix = AngleAxis3x3(rand(pos.zzx) * _BendRotationRandom * UNITY_PI * 0.5, float3(-1, 0, 0));
 
-		float3x3 transformationMatrix = mul(mul(tangentToLocal, facingRotationMatrix), bendRotationMatrix);
+		float2 uv = pos.xz * _WindDistortionMap_ST.xy + _WindDistortionMap_ST.zw + _WindFrequency * _Time.y;
+
+		float2 windSample = (tex2Dlod(_WindDistortionMap, float4(uv, 0, 0)).xy * 2 - 1) * _WindStrength;
+
+		float3 wind = normalize(float3(windSample.x, windSample.y, 0));
+
+		float3x3 windRotation = AngleAxis3x3(UNITY_PI * windSample, wind);
+
+		float3x3 transformationMatrix = mul(mul(mul(tangentToLocal, windRotation), facingRotationMatrix), bendRotationMatrix);
+
+		float3x3 transformationMatrixFacing = mul(tangentToLocal, facingRotationMatrix);
 
 		float height = (rand(pos.zyx) * 2 - 1) * _BladeHeightRandom + _BladeHeight;
 		float width = (rand(pos.xzy) * 2 - 1) * _BladeWidthRandom + _BladeWidth;
-		
-		triStream.Append(VertexOutput(pos + mul(transformationMatrix, float3(width, 0, 0)), float2(0, 0)));
-		triStream.Append(VertexOutput(pos + mul(transformationMatrix, float3(-width, 0, 0)), float2(1, 0)));
-		triStream.Append(VertexOutput(pos + mul(transformationMatrix, float3(0, 0, height)), float2(0.5, 1)));
+
+		float forward = rand(pos.yyz) * _BladeForward;
+
+		for (int i = 0; i < BLADE_SEGMENTS; i++)
+        {
+        	float t = i / (float)BLADE_SEGMENTS;
+
+        	float segmentHeight = height * t;
+            float segmentWidth = width * (1 - t);
+
+            float segmentForward = pow(t, _BladeCurve) * forward;
+
+            float3x3 transformMatrix = i == 0 ? transformationMatrixFacing : transformationMatrix;
+
+            triStream.Append(GenerateGrassVertex(pos, segmentWidth, segmentHeight, segmentForward, float2(0, t), transformMatrix));
+            triStream.Append(GenerateGrassVertex(pos, -segmentWidth, segmentHeight, segmentForward, float2(1, t), transformMatrix));
+        }
+
+        triStream.Append(GenerateGrassVertex(pos, 0, height, forward, float2(0.5, 1), transformationMatrix));
 	}
 	ENDCG
 
@@ -140,6 +169,8 @@ Shader "Roystan/Grass"
             #pragma fragment frag
 			#pragma geometry geo
 			#pragma target 4.6
+			#pragma hull hull
+            #pragma domain domain
             
 			#include "Lighting.cginc"
 
