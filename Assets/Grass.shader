@@ -48,23 +48,38 @@ Shader "Roystan/Grass"
 	{
 		float4 pos : SV_POSITION;
 		float2 uv : TEXCOORD0;
+		unityShadowCoord4 _ShadowCoord : TEXCOORD1;
+		float3 normal : NORMAL;
 	};
 
-	geometryOutput VertexOutput(float3 pos, float2 uv)
+	geometryOutput VertexOutput(float3 pos, float2 uv, float3 normal)
 	{
 		geometryOutput o;
 		o.pos = UnityObjectToClipPos(pos);
 		o.uv = uv;
+
+		o._ShadowCoord = ComputeScreenPos(o.pos);
+
+		o.normal = UnityObjectToWorldNormal(normal);
+
+		#if UNITY_PASS_SHADOWCASTER
+			// Applying the bias prevents artifacts from appearing on the surface.
+			o.pos = UnityApplyLinearShadowBias(o.pos);
+		#endif
 
 		return o;
 	}
 
 	geometryOutput GenerateGrassVertex(float3 vertexPosition, float width, float height, float forward,float2 uv, float3x3 transformMatrix)
     {
-        float3 tangentPoint = float3(width, forward, height);
+        float3 tangentPoint = normalize(float3(0, -1, forward));
+
+		float3 tangentNormal = float3(0, -1, 0);
+		float3 localNormal = mul(transformMatrix, tangentNormal);
 
         float3 localPosition = vertexPosition + mul(transformMatrix, tangentPoint);
-        return VertexOutput(localPosition, uv);
+        
+		return VertexOutput(localPosition, uv, localNormal);
     }
 
 	// Simple noise function, sourced from http://answers.unity.com/answers/624136/view.html
@@ -169,6 +184,7 @@ Shader "Roystan/Grass"
             #pragma fragment frag
 			#pragma geometry geo
 			#pragma target 4.6
+			#pragma multi_compile_fwdbase
 			#pragma hull hull
             #pragma domain domain
             
@@ -181,9 +197,42 @@ Shader "Roystan/Grass"
 			//Fragment Shader
 			float4 frag (geometryOutput i, fixed facing : VFACE) : SV_Target
             {	
-				return lerp(_BottomColor, _TopColor, i.uv.y);
+				float3 normal = facing > 0 ? i.normal : -i.normal;
+
+				float shadow = SHADOW_ATTENUATION(i);
+				float NdotL = saturate(saturate(dot(normal, _WorldSpaceLightPos0)) + _TranslucentGain) * shadow;
+
+				float3 ambient = ShadeSH9(float4(normal, 1));
+				float4 lightIntensity = NdotL * _LightColor0 + float4(ambient, 1);
+				float4 col = lerp(_BottomColor, _TopColor * lightIntensity, i.uv.y);
+
+				return col;
             }
             ENDCG
         }
+
+		Pass
+		{
+			Tags
+			{
+				"LightMode" = "ShadowCaster"
+			}
+
+			CGPROGRAM
+			#pragma vertex vert
+			#pragma geometry geo
+			#pragma fragment frag
+			#pragma hull hull
+			#pragma domain domain
+			#pragma target 4.6
+			#pragma multi_compile_shadowcaster
+
+			float4 frag(geometryOutput i) : SV_Target
+			{
+				SHADOW_CASTER_FRAGMENT(i)
+			}
+
+			ENDCG
+		}
     }
 }
