@@ -25,25 +25,6 @@ Shader "Roystan/Grass"
 	#include "Autolight.cginc"
 	#include "Shaders/CustomTessellation.cginc"
 
-	#define BLADE_SEGMENTS 3
-
-	float _BendRotationRandom;
-	float _BladeHeight;
-	float _BladeHeightRandom;
-	float _BladeWidth;
-	float _BladeWidthRandom;
-
-	sampler2D _WindDistortionMap;
-    float4 _WindDistortionMap_ST;
-
-    float2 _WindFrequency;
-
-    float _WindStrength;
-
-    float _BladeForward;
-    float _BladeCurve;
-
-	
 	struct geometryOutput
 	{
 		float4 pos : SV_POSITION;
@@ -51,36 +32,6 @@ Shader "Roystan/Grass"
 		unityShadowCoord4 _ShadowCoord : TEXCOORD1;
 		float3 normal : NORMAL;
 	};
-
-	geometryOutput VertexOutput(float3 pos, float2 uv, float3 normal)
-	{
-		geometryOutput o;
-		o.pos = UnityObjectToClipPos(pos);
-		o.uv = uv;
-
-		o._ShadowCoord = ComputeScreenPos(o.pos);
-
-		o.normal = UnityObjectToWorldNormal(normal);
-
-		#if UNITY_PASS_SHADOWCASTER
-			// Applying the bias prevents artifacts from appearing on the surface.
-			o.pos = UnityApplyLinearShadowBias(o.pos);
-		#endif
-
-		return o;
-	}
-
-	geometryOutput GenerateGrassVertex(float3 vertexPosition, float width, float height, float forward,float2 uv, float3x3 transformMatrix)
-    {
-        float3 tangentPoint = normalize(float3(0, -1, forward));
-
-		float3 tangentNormal = float3(0, -1, 0);
-		float3 localNormal = mul(transformMatrix, tangentNormal);
-
-        float3 localPosition = vertexPosition + mul(transformMatrix, tangentPoint);
-        
-		return VertexOutput(localPosition, uv, localNormal);
-    }
 
 	// Simple noise function, sourced from http://answers.unity.com/answers/624136/view.html
 	// Extended discussion on this function can be found at the following link:
@@ -110,10 +61,53 @@ Shader "Roystan/Grass"
 			);
 	}
 
-	float4 vert(float4 vertex : POSITION) : SV_POSITION
+	geometryOutput VertexOutput(float3 pos, float3 normal, float2 uv)
 	{
-		return vertex;
+		geometryOutput o;
+		o.pos = UnityObjectToClipPos(pos);
+		o.uv = uv;
+
+		o._ShadowCoord = ComputeScreenPos(o.pos);
+
+		o.normal = UnityObjectToWorldNormal(normal);
+
+		#if UNITY_PASS_SHADOWCASTER
+			// Applying the bias prevents artifacts from appearing on the surface.
+			o.pos = UnityApplyLinearShadowBias(o.pos);
+		#endif
+
+		return o;
 	}
+
+	geometryOutput GenerateGrassVertex(float3 vertexPosition, float width, float height, float forward,float2 uv, float3x3 transformMatrix)
+    {
+        float3 tangentPoint = float3(width, forward, height);
+
+		float3 tangentNormal = normalize(float3(0, -1, forward));
+
+        float3 localPosition = vertexPosition + mul(transformMatrix, tangentPoint);
+        float3 localNormal = mul(transformMatrix, tangentNormal);
+
+		return VertexOutput(localPosition, localNormal, uv);
+    }
+
+	float _BendRotationRandom;
+	float _BladeHeight;
+	float _BladeHeightRandom;
+	float _BladeWidth;
+	float _BladeWidthRandom;
+
+	sampler2D _WindDistortionMap;
+    float4 _WindDistortionMap_ST;
+
+    float2 _WindFrequency;
+
+    float _WindStrength;
+
+    float _BladeForward;
+    float _BladeCurve;
+	
+	#define BLADE_SEGMENTS 3
 
 	//Geometry shader
 	[maxvertexcount(BLADE_SEGMENTS * 2 + 1)]
